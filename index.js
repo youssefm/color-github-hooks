@@ -1,19 +1,22 @@
-/**
- * This is the main entrypoint to your Probot app
- * @param {import('probot').Application} app
- */
+const DJANGO_MIGRATION_REGEX = /src\/django_apps\/[^/]+\/migrations\/[^/]+.py$/;
+const DJANGO_MIGRATION_BACKWARDS_COMPAT_WARNING =
+  "This pull request contains Django migrations. Please ensure that the migrations are backwards compatible and will not cause issues during deployment when old code tries to run against the newly migrated database.";
+
 module.exports = app => {
-  // Your code here
-  app.log('Yay, the app was loaded!')
+  app.on("pull_request.opened", async context => {
+    app.log("Pull Request opened");
 
-  app.on('issues.opened', async context => {
-    const issueComment = context.issue({ body: 'Thanks for opening this issue!' })
-    return context.github.issues.createComment(issueComment)
-  })
+    const allFiles = await context.github.paginate(
+      context.github.pulls.listFiles.endpoint.merge(context.issue()),
+      response => response.data
+    );
+    const containsDjangoMigrations = allFiles.some(file =>
+      DJANGO_MIGRATION_REGEX.test(file.filename)
+    );
 
-  // For more information on building apps:
-  // https://probot.github.io/docs/
-
-  // To get your app running against GitHub, see:
-  // https://probot.github.io/docs/development/
-}
+    if (containsDjangoMigrations) {
+      const params = context.issue({ body: DJANGO_MIGRATION_BACKWARDS_COMPAT_WARNING });
+      return context.github.issues.createComment(params);
+    }
+  });
+};
